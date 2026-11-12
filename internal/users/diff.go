@@ -86,10 +86,9 @@ func alertList(a []int) string {
 	return strings.Join(s, " ")
 }
 
-// actionUsers is the IAM users a user's pause action denies: the file's iam_user, once it exists
-// under that exact name and isn't another id's.
+// actionUsers includes an existing eligible IAM user or one apply will create.
 func actionUsers(want config.Resolved, o IAMUserState, id string) []string {
-	if want.IAMUser == "" || !o.Exists || o.Name != want.IAMUser || (o.ID != "" && o.ID != id) {
+	if want.IAMUser == "" || (o.Exists && (o.Name != want.IAMUser || (o.ID != "" && o.ID != id))) {
 		return nil
 	}
 	return []string{want.IAMUser}
