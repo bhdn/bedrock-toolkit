@@ -171,7 +171,7 @@ func TestDiffIAMUser(t *testing.T) {
 		warning string
 	}{
 		{"in sync", ok, plan.OK, false, "", ""},
-		{"missing", IAMUserState{}, plan.OK, false, "", "doesn't exist"},
+		{"missing", IAMUserState{}, plan.Update, true, "create IAM user dave.dev", ""},
 		{"case", IAMUserState{Exists: true, Name: "Dave.Dev"}, plan.OK, false, "", "named Dave.Dev in AWS"},
 		{"other id", IAMUserState{Exists: true, Name: "dave.dev", ID: "other"}, plan.OK, false, "", "managed by other"},
 		{"new", IAMUserState{Exists: true, Name: "dave.dev"}, plan.Update, true, "tag IAM user dave.dev, attach bedrock-iam-users-acme", ""},
@@ -218,7 +218,8 @@ func TestDiffActionIAMUsers(t *testing.T) {
 		{"added", w, iamOK, nil, pause.Armed, "pause action IAM users none → dave.dev", nil, nil},
 		{"added while paused", w, iamOK, nil, pause.Paused, "pause action IAM users none → dave.dev  (paused: the deny follows the IAM user change)", []string{"dave.dev"}, nil},
 		{"removed while paused by hand", want(50, 100), IAMUserState{}, []string{"dave.dev"}, pause.PausedByHand, "pause action IAM users dave.dev → none  (paused: the deny follows the IAM user change)", nil, []string{"dave.dev"}},
-		{"IAM user missing", w, IAMUserState{}, nil, pause.Armed, "", nil, nil},
+		{"IAM user missing", w, IAMUserState{}, nil, pause.Armed, "pause action IAM users none → dave.dev, create IAM user dave.dev, tag and attach bedrock-iam-users-acme", nil, nil},
+		{"IAM user missing while paused", w, IAMUserState{}, nil, pause.Paused, "pause action IAM users none → dave.dev, create IAM user dave.dev, tag and attach bedrock-iam-users-acme  (paused: the deny follows the IAM user change)", []string{"dave.dev"}, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -36,7 +36,7 @@ func diffIAMUser(want config.Resolved, o IAMUserState, id string) (details, warn
 	}
 	switch {
 	case !o.Exists:
-		return nil, []string{"IAM user " + want.IAMUser + " doesn't exist; create it, then apply again"}, false
+		return []string{"create IAM user " + want.IAMUser + ", tag and attach " + policy.IAMUsersPolicyName(id)}, nil, true
 	case o.Name != want.IAMUser:
 		return nil, []string{"IAM user is named " + o.Name + " in AWS, not " + want.IAMUser + "; fix iam_user (the trust policy is case-sensitive)"}, false
 	case o.ID != "" && o.ID != id:
