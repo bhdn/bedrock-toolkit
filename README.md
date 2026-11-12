@@ -22,7 +22,7 @@ reach it. Admins manage everyone from one file; users set up their machine with 
 - **Pausing only that person**: at the limit, the budget attaches a deny policy to that user's role
   (and IAM user, if they have one). A monthly renewal process re-arms it. Admins can also pause
   and unpause by hand.
-- **Users without SSO**: `iam_user:` lets someone sign in with an existing IAM user's access key.
+- **Users without SSO**: `iam_user:` lets someone sign in with an IAM user's access key; `apply` creates the IAM user if missing.
   They still call models only through their personal role, with the same budget and pause.
 - **One file, plan and apply**: `bedrock.yaml` lists the settings and the users. `plan` shows what
   differs from the account, `apply` makes them match, and `export` writes the file back from the account.

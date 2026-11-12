@@ -342,6 +342,11 @@ The role trusts the account root, with three conditions that must all hold:
 
 ### IAM users
 
+`apply` creates missing users named by `iam_user:` before configuring their roles and budget
+actions. It tags and attaches the setup policy to existing users too, preserving the checks for
+name case and ownership by another setup. Access keys and console passwords are not created.
+Offboarding keeps IAM users and their keys; delete them separately.
+
 With `iam_user: <name>` on a user, the trust gets a second statement (Sid `IAMUser`), and the SSO
 statement stays, so the user may use either:
 

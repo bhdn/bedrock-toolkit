@@ -254,9 +254,8 @@ The file holds no secrets. Keep it in Git and review changes in pull requests.
 
 ### Users without SSO: IAM users
 
-Someone without an SSO login can sign in with an IAM user's access key instead. Create the IAM user
-and its access key yourself (in the console or with `aws iam create-user` and
-`aws iam create-access-key`; it needs no policy), then name it in the user's entry:
+Someone without an SSO login can sign in with an IAM user's access key instead. Name the IAM user in the entry below. `apply` creates it if missing, or configures the existing user.
+Create its access key separately after applying (in the console or with `aws iam create-access-key`):
 
 ```yaml
 users:
@@ -265,6 +264,8 @@ users:
 ```
 
 `apply` then:
+
+- creates missing IAM users without console passwords or access keys;
 
 - creates `bedrock-iam-users-<id>` (Step 1.9) and attaches it to the IAM user. It lets the user
   assume only their own personal role and read their own tags, and denies direct model calls, so
@@ -288,7 +289,7 @@ Send the user the access key and that command. They store the key with
 
 If you add `iam_user:` to someone who is paused, `apply` attaches the deny to the IAM user right away.
 
-`plan` warns, and changes nothing on the IAM user, when it doesn't exist, when its name differs only
+`plan` warns, and changes nothing on the IAM user, when its name differs only
 in case, or when another setup's id manages it. Take `iam_user:` out (or remove the user) and `apply`
 detaches the policy (and any pause), removes the tags and takes it out of the pause action, but keeps the IAM user and its keys: delete them yourself.
 That removal needs `--yes`, like offboarding. When no user has `iam_user:` left, `apply` deletes the
@@ -377,7 +378,7 @@ users:                          # or: users: !include users.yaml
 | `pause_at_percent` | 1–200. The pause fires when spend reaches `limit_usd × pause_at_percent / 100` (the trigger). Default 100. |
 | `alert_at_percent` | Up to 4 values, each 1–200. Default `[80]`. |
 | `notify` | `owner` (the user's SSO email) or an email address. Use an address when the SSO email gets no mail. |
-| `iam_user` (per user) | Optional. An existing IAM user the user signs in with instead of (or as well as) SSO; see [IAM users](#users-without-sso-iam-users). Letters, digits and `+=,.@_-`, up to 64. Each IAM user may belong to one user. |
+| `iam_user` (per user) | Optional. An IAM user (created by `apply` if missing) the user signs in with instead of (or as well as) SSO; see [IAM users](#users-without-sso-iam-users). Letters, digits and `+=,.@_-`, up to 64. Each IAM user may belong to one user. |
 | `name` (per user) | Overrides the name derived from the email (`achen@example.com` → `achen`). At most 30 characters, so the role name fits IAM's 64. The role is `bedrock-user-<id>-<name>`, the budget `bedrock-<id>-<name>`. |
 | `cost_export.bucket` | Default `bedrock-cur-<account>-<id>`. |
 | `cost_export.name` | Export name. Default `bedrock-cur-<id>`. |
@@ -562,7 +563,7 @@ Plan: 11 to create.
 | 1.5 | Each model in `models:` and every baseline model (only those when `models:` is empty) is available, checked (`us.` profiles from us-east-1 and `eu.` ones from eu-central-1 when they aren't your region's). If not, `apply` makes the first call, which enables it and accepts its agreement. AWS updates the status a few minutes later, so a `plan` right after `apply` can still show `first call`; it clears by itself. |
 | 1.6 | The cost allocation tag `iamPrincipal/owner` is active. It appears only after the first call through a personal role, up to 24 hours later. Only the management account can read and activate it; elsewhere Step 1.6 is `ok` when a budget on the tag has spend or the cost export carries the tag, else a warning to ask your org admin (not a change, so the exit code stays 0). |
 | 1.8 | Only with `web_search.enabled`: the role `bedrock-web-search-gateway-<id>`, the AgentCore gateway `bedrock-web-search-<id>` and its Web Search target; see [step 10](#10-turn-on-web-search-optional). |
-| 1.9 | Only when a user has `iam_user:`: the managed policy `bedrock-iam-users-<id>` attached to those IAM users; see [IAM users](#users-without-sso-iam-users). It warns about IAM users that don't exist. |
+| 1.9 | Only when a user has `iam_user:`: the managed policy `bedrock-iam-users-<id>` attached to those IAM users; see [IAM users](#users-without-sso-iam-users). Missing IAM users are created during user provisioning. |
 
 </details>
 

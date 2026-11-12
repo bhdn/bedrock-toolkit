@@ -3,7 +3,6 @@ package account
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
@@ -76,18 +75,7 @@ func (e *Env) iamUsersPolicy(ctx context.Context) ([]*plan.Item, error) {
 			it.Status = fmt.Sprintf("ok (%d IAM users; denies direct model calls with their keys)", len(names))
 		}
 	}
-	var missing []string
-	for _, n := range names {
-		if _, err := e.C.IAM.GetUser(ctx, &iam.GetUserInput{UserName: aws.String(n)}); err != nil {
-			if !isNoSuchEntity(err) {
-				return nil, fmt.Errorf("reading IAM user %s: %w", n, err)
-			}
-			missing = append(missing, n)
-		}
-	}
-	if len(missing) > 0 {
-		it.Warnings = append(it.Warnings, "IAM users in the file that don't exist (create them, then apply): "+strings.Join(missing, ", "))
-	}
+
 	return one(it), nil
 }
 

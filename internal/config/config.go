@@ -103,7 +103,7 @@ type User struct {
 	Notify         string   `yaml:"notify,omitempty" json:"notify,omitempty"`
 	// Product overrides the file's product tag on this user's role.
 	Product string `yaml:"product,omitempty" json:"product,omitempty"`
-	// IAMUser is an existing IAM user that may also assume the personal role.
+	// IAMUser names an IAM user that may also assume the personal role; apply creates it if missing.
 	IAMUser string `yaml:"iam_user,omitempty" json:"iam_user,omitempty"`
 }
 

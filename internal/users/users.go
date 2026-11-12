@@ -15,6 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/budgets"
 	btypes "github.com/aws/aws-sdk-go-v2/service/budgets/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	itypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 
 	"github.com/SUSE/bedrock-toolkit/internal/account"
 	"github.com/SUSE/bedrock-toolkit/internal/awsx"
@@ -353,6 +355,24 @@ func retryable(err error) bool {
 }
 
 func (e *Env) apply(ctx context.Context, u config.Resolved, o Observed, c Change) error {
+	if c.FixIAMUser {
+		if !o.IAM.Exists {
+			_, err := e.C.IAM.CreateUser(ctx, &iam.CreateUserInput{
+				UserName: aws.String(u.IAMUser),
+				Tags: []itypes.Tag{
+					{Key: aws.String(policy.IDTag), Value: aws.String(e.Cfg.ID)},
+					{Key: aws.String(policy.OwnerTag), Value: aws.String(u.Email)},
+					{Key: aws.String(policy.ProductTag), Value: aws.String(u.Product)},
+				},
+			})
+			if err != nil {
+				return fmt.Errorf("creating IAM user %s: %w", u.IAMUser, err)
+			}
+		}
+		if err := e.fixIAMUser(ctx, u); err != nil {
+			return err
+		}
+	}
 	acct := aws.String(e.C.Account)
 	bn := aws.String(u.BudgetName)
 	spec := RoleSpec(e.Cfg, e.C.Account, u)
@@ -431,11 +451,6 @@ func (e *Env) apply(ctx context.Context, u config.Resolved, o Observed, c Change
 			ActionId: aws.String(o.ActionID), ActionThreshold: threshold, Subscribers: email(u.Notify),
 			Definition: e.actionDefinition(u, c.ActionUsers)}); err != nil {
 			return fmt.Errorf("updating the pause action of %s: %w", u.BudgetName, err)
-		}
-	}
-	if c.FixIAMUser {
-		if err := e.fixIAMUser(ctx, u); err != nil {
-			return err
 		}
 	}
 	if err := e.Pause.AttachToUsers(ctx, c.PauseIAMUsers); err != nil {
