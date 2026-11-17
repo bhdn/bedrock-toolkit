@@ -38,6 +38,7 @@ bedrock-admin configure sso --start-url https://example.awsapps.com/start --sso-
 #   creates your bedrock-admin SSO profile and signs you in (step 1)
 bedrock-admin configure --profile bedrock-admin   # write bedrock.yaml (step 2)
 #   ...add your users under users: in bedrock.yaml
+bedrock-admin onboard dlee@example.com            # after apply: temporary IAM console password
 bedrock-admin doctor                              # check credentials and permissions (step 1)
 bedrock-admin plan                                # see what apply will create (step 3)
 bedrock-admin apply                               # create it; prints the command for each new user
@@ -88,6 +89,7 @@ bedrock-admin usage                               # spend per user, and spend ou
 | `bedrock-admin pause` | Pauses a user by hand, until `unpause`. The monthly Lambda leaves it in place | [6](#6-pause-someone-yourself) |
 | `bedrock-admin unpause` | Restores a paused user's access | [5](#5-someone-got-paused) |
 | `bedrock-admin usage` | Spend per user (or per product or day with `--by`), and spend outside personal roles. Exits 2 on untracked spend | [7](#7-read-spend) |
+| `bedrock-admin onboard` | Issue an IAM user a temporary console password | [IAM users](#users-without-sso-iam-users) |
 | `bedrock-admin users` | Who is onboarded, who has run `bedrock setup`, and who is paused | [7](#who-has-set-up) |
 | `bedrock-admin setups` | Every setup (id) in the account, with users, last use and spend; flags idle ones | [id](#list-change-or-remove-a-setup) |
 | `bedrock-admin uninstall` | Removes the account setup. Refuses while users remain | [11](#11-remove-everything) |
@@ -204,7 +206,7 @@ them all.
 
 | Service | Used for |
 | --- | --- |
-| IAM | Roles and policies under the paths `/bedrock/` and `/bedrock-users/`, their tags and inline policies, `iam:PassRole` for the Lambda, scheduler and budget actions roles, and reading the inline policy of the `AWSReservedSSO_*` roles (`block status`, `doctor`). With `iam_user:` users: `iam:GetUser`, `iam:ListUserTags`, `iam:TagUser`, `iam:UntagUser`, `iam:AttachUserPolicy`, `iam:DetachUserPolicy`, `iam:ListAttachedUserPolicies` and `iam:ListEntitiesForPolicy` (Step 1.9) |
+| IAM | Roles and policies under the paths `/bedrock/` and `/bedrock-users/`, their tags and inline policies, `iam:PassRole` for the Lambda, scheduler and budget actions roles, and reading the inline policy of the `AWSReservedSSO_*` roles (`block status`, `doctor`). With `iam_user:` users: `iam:GetUser`, `iam:ListUserTags`, `iam:TagUser`, `iam:UntagUser`, `iam:AttachUserPolicy`, `iam:DetachUserPolicy`, `iam:ListAttachedUserPolicies` and `iam:ListEntitiesForPolicy` (Step 1.9); `onboard` also needs `iam:GetLoginProfile`, `iam:GetAccountPasswordPolicy` and `iam:CreateLoginProfile` |
 | AWS Budgets | Budgets, notifications and budget actions, including running and resetting actions |
 | Data Exports (`bcm-data-exports`) | The CUR 2.0 export (Step 1.1) |
 | S3 | Creating the cost export bucket, its policy and public access block; listing and reading the export and snapshot files. Include `s3:GetBucketLocation` on the bucket: `usage` and `doctor` read the bucket's region with it. |
@@ -282,7 +284,7 @@ The file holds no secrets. Keep it in Git and review changes in pull requests.
 ### Users without SSO: IAM users
 
 Someone without an SSO login can sign in with an IAM user's access key instead. Name the IAM user in the entry below. `apply` creates it if missing, or configures the existing user.
-Create its access key separately after applying (in the console or with `aws iam create-access-key`):
+After applying, issue a temporary console password so the user can create their own access key:
 
 ```yaml
 users:
@@ -295,7 +297,7 @@ users:
 - creates missing IAM users without console passwords or access keys;
 
 - creates `bedrock-iam-users-<id>` (Step 1.9) and attaches it to the IAM user. It lets the user
-  assume only their own personal role and read their own tags, and denies direct model calls, so
+  assume only their own personal role, read their own tags, and manage their own password and access keys. It denies direct model calls, so
   IAM users need nothing from your org admin;
 - tags the IAM user like the personal role: `owner=<email>`, `product` and `bedrock-admin:id`. The
   budget counts the Bedrock calls the IAM user makes directly as well as the personal role's.
@@ -310,9 +312,29 @@ users:
   --default-region <region>`: the setup's region, used only when the user's key profile has none
   (or `--region <region>` instead, when your profile's region differs from the setup's).
 
-Send the user the access key and those commands. `bedrock configure access-key` asks for the key
-and stores it in `~/.aws/credentials` itself; see the
-[user guide](user-guide.md#sign-in-with-an-iam-user-access-key).
+After `apply`, run:
+
+```bash
+bedrock-admin onboard dlee@example.com
+```
+
+Hand the printed sign-in URL, username, temporary password and setup command to the user securely.
+They sign in as themselves, change their password, and create their own access key on **Security
+credentials**. Skip the optional key description: users cannot modify their ownership or billing tags.
+They store the key with `bedrock configure access-key` and run the printed
+`bedrock setup` command; see the [user guide](user-guide.md#sign-in-with-an-iam-user-access-key).
+
+`onboard` requires an IAM user already configured by `apply`. It never replaces an existing console
+password or creates an access key. `--dry-run` checks prerequisites without issuing a password;
+`--json` includes the temporary password on success. Treat output as a secret, including redirected
+output. Passwords are generated in memory to meet the account password policy and are not saved in
+the config or plan. The admin needs `iam:GetLoginProfile`, `iam:GetAccountPasswordPolicy` and
+`iam:CreateLoginProfile`, in addition to the existing user-read permissions.
+
+The user must change the password on first sign-in; it does not automatically expire after a short
+invitation period. They can later use their console login to rotate or replace keys without an admin.
+If a console password already exists, hand over only the URL and setup instructions; password recovery
+is a separate admin operation. Removing `iam_user:` releases the user but retains its password and keys.
 
 If you add `iam_user:` to someone who is paused, `apply` attaches the deny to the IAM user right away.
 
@@ -1318,7 +1340,8 @@ The end-to-end tests run the real binaries against a real AWS account, by hand, 
 | Unblock a paused user for the month | `bedrock-admin unpause <email> --reason "..."` |
 | Block a user now | `bedrock-admin pause <email> --reason "..."` |
 | See spend | `bedrock-admin usage` |
-| See who has set up | `bedrock-admin users` |
+| See who has set up | `bedrock-admin onboard` | Issue an IAM user a temporary console password | [IAM users](#users-without-sso-iam-users) |
+| `bedrock-admin users` |
 | List the setups (ids) in the account | `bedrock-admin setups` |
 | Report to a central bucket | Add `report:` to `bedrock.yaml`, then `apply` |
 | Capture an account in a file | `bedrock-admin export > bedrock.yaml` |

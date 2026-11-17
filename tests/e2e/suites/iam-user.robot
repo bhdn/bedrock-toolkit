@@ -29,6 +29,13 @@ Apply Onboards The IAM User
     Should Start With    ${SETUP_COMMAND}    bedrock configure access-key &&
     Plan Should Show No Changes
 
+Admin Issues A Console Login Without Replacing It
+    Onboard Test Iam User    iam    ${IAM_USER}
+
+User Manages Only Their Own Keys
+    Wait Until Access Key Works    ${KEY_PROFILE}
+    Wait Until Keyword Succeeds    3 min    10 s    Iam User Can Manage Own Keys    ${IAM_USER}    ${KEY_PROFILE}
+
 Setup With The Access Key Writes A Working Profile
     [Documentation]    setup reads the email from the IAM user's own tags; its doctor assumes the
     ...    personal role through the trust's IAMUser statement (retried while IAM propagates).

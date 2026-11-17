@@ -41,8 +41,8 @@ below; click the folded sections for sample output and details.
 
 ## How it works
 
-- You use Bedrock through a personal AWS role that only you can use, from your SSO login (or, if
-  your admin gave you one, an IAM user's access key).
+- You use Bedrock through a personal AWS role that only you can use, from your SSO login or an IAM user's access key.
+  With IAM onboarding, your admin gives you a temporary console password so you can create that key.
 - You can use Anthropic Claude models, except the Claude Fable family, which is not approved. Your
   admin may allow only some of them, but Claude Opus, Sonnet and Haiku 5.5 are always allowed.
   `bedrock models` lists the ones you may use.
@@ -167,8 +167,14 @@ before that to the only SSO sign-in in `~/.aws/config` (one SSO profile, or seve
 
 ### Sign in with an IAM user access key
 
-If your admin gave you an IAM user's access key instead of SSO, the line they sent starts with
-`bedrock configure access-key`:
+If your admin gives you a sign-in URL, username and temporary password, sign in as that IAM
+user and choose a new password. Open **Security credentials → Access keys → Create access key**.
+Skip the optional description tag. Save the secret when it is displayed; AWS does not show it
+again. You do not need admin permissions. Keep your console login so you can replace or rotate
+keys yourself (at most two keys per user).
+
+Store your new key, or a key your admin previously gave you, with the first command in the
+onboarding line your admin sent:
 
 ```bash
 bedrock configure access-key
@@ -548,7 +554,7 @@ the fix under it:
 | `profile` | `<key> has a comment at the end of the line` | Put comments on their own line, or run `bedrock setup --yes` |
 | `SSO sign-in` | Your SSO session expired or you are not signed in | `bedrock login --profile <profile>` |
 | `SSO sign-in` | `signed in as ..., not with SSO` (or `sign in with bedrock login ...`) | Set `source_profile` to your SSO or IAM user profile, or run `bedrock setup --source-profile <profile>` |
-| `sign-in` | The access key of the IAM user profile doesn't work | `bedrock configure access-key --profile-name <profile>` with a valid key; ask your admin for a new one |
+| `sign-in` | The access key of the IAM user profile doesn't work | `bedrock configure access-key --profile-name <profile>` with a valid key; create a replacement on your IAM Security credentials page (ask your admin if you have no console login) |
 | `session name` | `role_session_name is ..., but it must be your email` (IAM user) | `bedrock setup --yes` |
 | `session name` | `role_session_name is ..., but it must be exactly your SSO email ...` | `bedrock setup --yes` |
 | `permission-set access` | `cannot use <role ARN>: ... AccessDenied` | Ask your admin to onboard you with the address shown under `SSO sign-in` (not an alias), and check `role_arn` if they gave you one. Or ask them to let your SSO permission set use the `bedrock-users` roles. With an IAM user: ask them to onboard your email with `iam_user: <name>`. |
