@@ -278,12 +278,15 @@ func UserTrust(account, email, iamUser string) string {
 
 // IAMUsers is the managed policy attached to the IAM users that may use personal roles: assume a
 // personal role (each role's trust admits only its own IAM user), read their own tags (bedrock
-// setup reads the email from them) and the bedrock-admin block deny, so their access keys can't
-// call models directly.
+// setup reads the email from them), and manage their own credentials. The bedrock-admin block
+// deny prevents their access keys from calling models directly.
 func IAMUsers(account, id string) string {
 	s := []stmt{
+		{"Sid": "ReadPasswordPolicy", "Effect": "Allow", "Action": "iam:GetAccountPasswordPolicy", "Resource": "*"},
 		{"Sid": "AssumeBedrockPersonalRole", "Effect": "Allow", "Action": "sts:AssumeRole", "Resource": UserRolesArn(account, id)},
-		{"Sid": "ReadOwnTags", "Effect": "Allow", "Action": "iam:ListUserTags", "Resource": []string{
+		{"Sid": "ManageOwnCredentials", "Effect": "Allow", "Action": []string{
+			"iam:ListUserTags", "iam:GetUser", "iam:ChangePassword",
+			"iam:CreateAccessKey", "iam:ListAccessKeys", "iam:UpdateAccessKey", "iam:DeleteAccessKey", "iam:GetAccessKeyLastUsed"}, "Resource": []string{
 			fmt.Sprintf("arn:aws:iam::%s:user/${aws:username}", account),
 			fmt.Sprintf("arn:aws:iam::%s:user/*/${aws:username}", account)}},
 	}

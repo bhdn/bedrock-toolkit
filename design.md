@@ -38,7 +38,7 @@ There are two CLIs:
 
 | CLI | For | Commands |
 | --- | --- | --- |
-| `bedrock-admin` | The account admin | `login`, `whoami`, `configure`, `doctor`, `models`, `plan`, `apply`, `export`, `uninstall`, `setups`, `users`, `pause`, `unpause`, `usage`, `block`; `fleet` for the central admin |
+| `bedrock-admin` | The account admin | `login`, `whoami`, `configure`, `doctor`, `models`, `plan`, `apply`, `export`, `uninstall`, `setups`, `onboard`, `users`, `pause`, `unpause`, `usage`, `block`; `fleet` for the central admin |
 | `bedrock` | Users | `configure`, `login`, `whoami`, `setup`, `doctor`, `claude`, `models`, `usage` |
 
 ## 2. Key concepts
@@ -194,7 +194,7 @@ and the record is the role tag and CloudTrail. Pause overrides in the file (for 
 | 1.5 | Model access: a first call to each model in `models:` and every baseline model (only those when `models:` is empty), from a region of the model's geography | Some models need a first call, from the account, before anyone can use them |
 | 1.6 | The `iamPrincipal/owner` cost allocation tag is active | Budgets can only filter on active tags. It can be activated only after a personal role has made a Bedrock call, so it may wait up to a day after the first user starts. Only the management account can read and activate it; from a member account Step 1.6 is `ok` when a budget on the tag has spend or the cost export carries the tag, else a warning (`WARN` in `doctor`) that doesn't change the exit code. |
 | 1.8 | Only with `web_search.enabled`: the web search gateway, its target and its role | Claude Code's built-in web search doesn't work on Bedrock. See [Step 1.8](#step-18-web-search). |
-| 1.9 | Only when a user has `iam_user:`: the managed policy `bedrock-iam-users-<id>` (path `/bedrock/`) | Lets those IAM users assume a personal role and read their own tags, and denies their direct model calls. `apply` attaches it per user. See [IAM users](#iam-users). |
+| 1.9 | Only when a user has `iam_user:`: the managed policy `bedrock-iam-users-<id>` (path `/bedrock/`) | Lets those IAM users assume a personal role, read their own tags and manage their own password and access keys, and denies their direct model calls. `apply` attaches it per user. See [IAM users](#iam-users). |
 
 If an account step fails, `apply` skips the users. Step 1.6 shows "waiting for first use" until
 the tag can be activated. `apply` exits 2 while something is pending. Blocking direct model calls needs the org admin and is
@@ -353,8 +353,12 @@ The role trusts the account root, with three conditions that must all hold:
 
 `apply` creates missing users named by `iam_user:` before configuring their roles and budget
 actions. It tags and attaches the setup policy to existing users too, preserving the checks for
-name case and ownership by another setup. Access keys and console passwords are not created.
-Offboarding keeps IAM users and their keys; delete them separately.
+name case and ownership by another setup. Apply creates neither access keys nor console passwords.
+The explicit `bedrock-admin onboard` command creates an initial console login, requires a password
+change, and refuses existing logins. The admin hands over its temporary password; the IAM user
+creates their own keys. Dry runs never generate passwords, and config and plan output contain no
+passwords.
+Offboarding keeps IAM users, console passwords and keys; delete them separately.
 
 With `iam_user: <name>` on a user, the trust gets a second statement (Sid `IAMUser`), and the SSO
 statement stays, so the user may use either:
@@ -375,7 +379,7 @@ statement stays, so the user may use either:
   IAM users or keys. `aws:username` is case-sensitive, so `plan` warns when the name differs in case.
 - `apply` attaches the Step 1.9 policy `bedrock-iam-users-<id>` to the IAM user: `sts:AssumeRole`
   on the id's personal roles (each trust admits only its own IAM user), `iam:ListUserTags` on itself,
-  and the same deny as `bedrock-admin block`, so the access key can't call models directly. This needs no org admin. One managed policy instead of an inline one per user,
+  self-service password and access-key management scoped to their own user ARN (including paths), read access to the account password policy, and the same deny as `bedrock-admin block`, so the access key can't call models directly. This needs no org admin. One managed policy instead of an inline one per user,
   so removals are found with `ListEntitiesForPolicy`.
 - It tags the IAM user like the personal role, `owner=<email>`, `product` and `bedrock-admin:id`, so
   the budget's `iamPrincipal/owner` filter counts the IAM user's direct Bedrock calls, the same as an
@@ -784,7 +788,7 @@ and a real AWS account:
 | `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall`; central reports: `fleet init` (and finding the bucket by its tag), the reports and usage from `apply`, the Lambda and `uninstall`, `fleet report` with `--by product` and `--by month`, `setups` with and without a file, `block policy` and `block status` (read-only; `block apply` needs Organizations rights) |
 | `users` | Onboarding, limit changes and offboarding, pause and unpause by hand, `bedrock-admin users` |
 | `user-access` | The user flow: `bedrock setup` (a wrong id writes nothing; a rerun reuses the id), calls through the personal role, `bedrock doctor` (also renewing an expired SSO token from the cache `bedrock login` writes), `bedrock usage` (with its daily usage file, and without one), `bedrock models`, direct SSO calls denied, a pause seen by the user |
-| `iam-user` | A user with an IAM user's access key: `apply` tags the IAM user `owner`, attaches Step 1.9 and adds it to the pause action, its onboarding line starts with `bedrock configure access-key`, `bedrock setup --source-profile`, calls through the personal role, direct key calls denied (even with the key's own Bedrock Allow), a pause denies the key and the personal role, removing `iam_user:` releases the IAM user |
+| `iam-user` | A user with an IAM user's access key: `apply` tags the IAM user `owner`, attaches Step 1.9 and adds it to the pause action, its onboarding line starts with `bedrock configure access-key`, `bedrock setup --source-profile`, calls through the personal role, direct key calls denied (even with the key's own Bedrock Allow), a pause denies the key and the personal role, removing `iam_user:` releases the IAM user; initial console login requires a password change and is not replaced, own-key management succeeds and creating another user's key is denied |
 | `usage` | The report, against Parquet fixtures uploaded to the bucket; the Lambda's daily usage files, read only by their own role (a missing one is "not found" to it), deleted at offboarding |
 | `web-search` | Opt-in: turning `web_search` on creates the setup's gateway and gives a personal role the rights, the role can search, the pause denies it, the printed MCP server runs through the proxy, and turning it off removes the rights, the gateway and its role |
 | `billing` | Real spend, the automatic pause and the monthly Lambda, in phases over a day or more |

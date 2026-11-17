@@ -1140,6 +1140,64 @@ class BedrockE2E:
         logger.info(f"IAM user {name}, profile {profile}", also_console=True)
         return [name, profile]
 
+    def onboard_test_iam_user(self, x, name):
+        """Issue an initial password without writing the secret to Robot logs."""
+        env = self._env()
+        env["AWS_PROFILE"] = self._settings()["ADMIN_PROFILE"]
+        env.pop("BEDROCK_ADMIN_CONFIG", None)
+        cmd = [str(BIN / "bedrock-admin"), "-f", self.write_config(),
+               "onboard", self.user_email(x), "--json"]
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env,
+                                cwd=self.cwd, timeout=1800)
+        if result.returncode != 0:
+            raise Failure("onboard failed (secret-bearing output suppressed)")
+        login = self._iam().get_login_profile(UserName=name)["LoginProfile"]
+        if not login["PasswordResetRequired"]:
+            raise Failure("onboard did not require a password change")
+        again = subprocess.run(cmd, capture_output=True, text=True, env=env,
+                               cwd=self.cwd, timeout=1800)
+        if again.returncode == 0:
+            raise Failure("onboard replaced an existing login")
+        after = self._iam().get_login_profile(UserName=name)["LoginProfile"]
+        if after["CreateDate"] != login["CreateDate"]:
+            raise Failure("existing login changed")
+
+    def iam_user_can_manage_own_keys(self, name, profile):
+        """Exercise real own-key permissions and deny key creation for another IAM user."""
+        old = os.environ.get("AWS_CONFIG_FILE")
+        os.environ["AWS_CONFIG_FILE"] = str(self.user_aws_config)
+        try:
+            client = boto3.Session(profile_name=profile).client("iam")
+        finally:
+            if old is None:
+                os.environ.pop("AWS_CONFIG_FILE", None)
+            else:
+                os.environ["AWS_CONFIG_FILE"] = old
+        created = client.create_access_key(UserName=name)["AccessKey"]["AccessKeyId"]
+        try:
+            client.list_access_keys(UserName=name)
+            client.update_access_key(UserName=name, AccessKeyId=created, Status="Inactive")
+            client.delete_access_key(UserName=name, AccessKeyId=created)
+        finally:
+            try:
+                self._iam().delete_access_key(UserName=name, AccessKeyId=created)
+            except self._iam().exceptions.NoSuchEntityException:
+                pass
+        other = self.run_id + "-other"
+        self._iam().create_user(UserName=other)
+        try:
+            try:
+                client.create_access_key(UserName=other)
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] != "AccessDenied":
+                    raise
+            else:
+                raise Failure("IAM user could create another user's key")
+        finally:
+            for key in self._iam().list_access_keys(UserName=other)["AccessKeyMetadata"]:
+                self._iam().delete_access_key(UserName=other, AccessKeyId=key["AccessKeyId"])
+            self._iam().delete_user(UserName=other)
+
     def wait_until_access_key_works(self, profile, timeout=120):
         """New access keys take a few seconds to be usable."""
         deadline, err = time.time() + int(timeout), None
@@ -1238,6 +1296,10 @@ class BedrockE2E:
                     iam.detach_user_policy(UserName=name, PolicyArn=p["PolicyArn"])
                 for k in iam.list_access_keys(UserName=name)["AccessKeyMetadata"]:
                     iam.delete_access_key(UserName=name, AccessKeyId=k["AccessKeyId"])
+                try:
+                    iam.delete_login_profile(UserName=name)
+                except iam.exceptions.NoSuchEntityException:
+                    pass
                 iam.delete_user(UserName=name)
                 logger.info(f"deleted IAM user {name}", also_console=True)
 

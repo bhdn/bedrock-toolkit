@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"encoding/json"
 	"net/url"
 	"slices"
 	"strings"
@@ -198,5 +199,52 @@ func TestReportBucketPolicy(t *testing.T) {
 	acc := ReportBucketPolicy("central", "", []string{"111111111111", "222222222222"})
 	if !strings.Contains(acc, `"AWS":["arn:aws:iam::111111111111:root","arn:aws:iam::222222222222:root"]`) || strings.Contains(acc, "PrincipalOrgID") {
 		t.Errorf("accounts policy:\n%s", acc)
+	}
+}
+
+func TestIAMCredentialPermissionsStayOnOwnUser(t *testing.T) {
+	var doc struct {
+		Statement []struct {
+			Effect   string
+			Action   any
+			Resource any
+		}
+	}
+	if err := json.Unmarshal([]byte(IAMUsers("111122223333", "t")), &doc); err != nil {
+		t.Fatal(err)
+	}
+	required := map[string]bool{"iam:CreateAccessKey": false, "iam:ListAccessKeys": false, "iam:UpdateAccessKey": false, "iam:DeleteAccessKey": false, "iam:ChangePassword": false}
+	for _, st := range doc.Statement {
+		if st.Effect != "Allow" {
+			continue
+		}
+		actions, ok := st.Action.([]any)
+		if !ok {
+			actions = []any{st.Action}
+		}
+		for _, action := range actions {
+			name := action.(string)
+			if name == "iam:TagUser" || name == "iam:CreateLoginProfile" || name == "iam:UpdateLoginProfile" {
+				t.Fatalf("unexpected privilege %s", name)
+			}
+			if _, ok := required[name]; !ok {
+				continue
+			}
+			required[name] = true
+			resources, ok := st.Resource.([]any)
+			if !ok || len(resources) != 2 {
+				t.Fatalf("bad credential scope: %v", st.Resource)
+			}
+			for _, resource := range resources {
+				if resource != "arn:aws:iam::111122223333:user/${aws:username}" && resource != "arn:aws:iam::111122223333:user/*/${aws:username}" {
+					t.Fatalf("bad credential resource %v", resource)
+				}
+			}
+		}
+	}
+	for action, found := range required {
+		if !found {
+			t.Errorf("missing %s", action)
+		}
 	}
 }
