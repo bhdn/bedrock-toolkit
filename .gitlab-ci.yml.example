@@ -1,0 +1,106 @@
+# Sample pipeline for a separate repository containing Bedrock configs.
+# Copy this file to .gitlab-ci.yml in that repository.
+#
+# Setup
+# -----
+# Uses a Linux Docker/Kubernetes runner (amd64 or arm64); both jobs must use
+# the same architecture because apply reuses the downloaded binary.
+# The validation job installs the official release, including the monthly Lambda,
+# and verifies its archive against the release checksums. No toolkit source tree,
+# Go compiler or Makefile is needed in your config repository.
+# Set BEDROCK_VERSION to a release tag (e.g. v1.2.0) to pin the binary; empty
+# selects the latest release. Downloads require access to GitHub.
+#
+# Set BEDROCK_CONFIG_FILES to space-separated root config paths or globs.
+# Paths must not contain whitespace. Only list root configs: their !include
+# files load automatically. Missing files or an empty list fail validation.
+# Keep real account configs in your private configuration repository.
+#
+# Provide noninteractive AWS credentials on the runner or via GitLab CI/CD
+# variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and AWS_SESSION_TOKEN
+# for temporary credentials. Keep secrets out of this file. Omit profile: from
+# configs when using the default credential chain, or provision the named AWS
+# profile on the runner. Validation needs read permissions for the target
+# accounts; apply needs permissions to manage the configured AWS resources.
+# Protected variables are only available on protected refs: validation on
+# other branches needs its own read credentials.
+#
+# Behavior
+# --------
+# Every push (including tags) runs plan for each config. This validates files
+# and reads AWS without changing resources. Exit 2 means changes were found
+# and is accepted; other errors fail validation. Review the job log for the
+# proposed changes and any conflicts before starting apply.
+#
+# Apply is an optional manual job on the default branch after validation.
+# Starting it approves apply --yes, including removals. It uses the same commit's
+# configs and validation's binary, but recomputes the plan against current AWS
+# state. Multiple configs apply sequentially, not atomically. A resource group
+# serializes apply jobs. Use the latest pipeline; configure protection for the
+# bedrock environment and GitLab's prevention of outdated deployment jobs to
+# control who can deploy and prevent applying an older commit.
+#
+# Skipping apply leaves the pipeline successful. With allow_failure: true,
+# failed applies also leave a pipeline warning rather than a failed pipeline;
+# check the job result. Binary artifacts expire after one week; if expired,
+# run a new push pipeline before applying.
+#
+# GitLab syntax reference: https://docs.gitlab.com/ci/yaml/
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+
+stages:
+  - validate
+  - apply
+
+default:
+  image: debian:bookworm-slim
+
+variables:
+  BEDROCK_VERSION: ""
+  # Space-separated root config paths or globs; !include files load automatically.
+  # Paths must not contain whitespace. Override for a different directory/layout.
+  BEDROCK_CONFIG_FILES: "bedrock*.yaml"
+
+validate:
+  stage: validate
+  script:
+    - apt-get update && apt-get install -y --no-install-recommends ca-certificates curl
+    - curl -fsSL https://raw.githubusercontent.com/SUSE/bedrock-toolkit/main/install.sh -o /tmp/install-bedrock.sh
+    - VERSION="$BEDROCK_VERSION" INSTALL_DIR="$CI_PROJECT_DIR/bin" sh /tmp/install-bedrock.sh bedrock-admin
+    - |
+      for config in $BEDROCK_CONFIG_FILES; do
+        test -f "$config" || { echo "Config not found: $config" >&2; exit 1; }
+        status=0
+        bin/bedrock-admin plan -f "$config" || status=$?
+        case "$status" in
+          0|2) ;;
+          *) exit "$status" ;;
+        esac
+      done
+      test -n "$BEDROCK_CONFIG_FILES"
+  artifacts:
+    paths:
+      - bin/bedrock-admin
+    expire_in: 1 week
+
+apply:
+  stage: apply
+  needs:
+    - job: validate
+      artifacts: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+      allow_failure: true
+  resource_group: bedrock-apply
+  environment:
+    name: bedrock
+  script:
+    - |
+      for config in $BEDROCK_CONFIG_FILES; do
+        test -f "$config" || { echo "Config not found: $config" >&2; exit 1; }
+        bin/bedrock-admin apply -f "$config" --yes || exit $?
+      done
+      test -n "$BEDROCK_CONFIG_FILES"
